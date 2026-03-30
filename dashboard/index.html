@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ECG Anomaly Detection System</title>
+  <meta name="description" content="AI-Based Real-Time ECG Anomaly Detection — ESP32 + Random Forest" />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- Socket.IO client -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+<style>
+/* ═══════════════════════════════════════════════════════
+   CSS Variables & Reset
+═══════════════════════════════════════════════════════ */
+:root {
+  --bg-base:     #070C17;
+  --bg-card:     #0D1117;
+  --bg-card2:    #111827;
+  --border:      #1E293B;
+  --border-glow: rgba(0,212,255,.15);
+  --text-primary:#E2E8F0;
+  --text-muted:  #64748B;
+  --text-dim:    #94A3B8;
+  --cyan:        #00D4FF;
+  --green:       #10B981;
+  --yellow:      #F59E0B;
+  --red:         #EF4444;
+  --purple:      #A78BFA;
+  --blue:        #60A5FA;
+  --font-mono:   'JetBrains Mono', monospace;
+  --radius:      14px;
+  --radius-sm:   8px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ═══════════════════════════════════════════════════════
+   Layout
+═══════════════════════════════════════════════════════ */
+.shell {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+
+/* ═══════════════════════════════════════════════════════
+   Header
+═══════════════════════════════════════════════════════ */
+header {
+  grid-column: 1 / -1;
+  background: linear-gradient(135deg, #0D1B3E 0%, #0D1117 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 28px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 4px 24px rgba(0,212,255,.06);
+}
+
+.header-icon { font-size: 2rem; line-height: 1; }
+
+.header-text h1 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--cyan), var(--purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -.02em;
+}
+
+.header-text .subtitle {
+  font-size: .78rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.header-badges {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.badge {
+  font-size: .72rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 100px;
+  border: 1px solid;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.badge-cyan   { border-color: var(--cyan);   color: var(--cyan);   background: rgba(0,212,255,.08); }
+.badge-purple { border-color: var(--purple); color: var(--purple); background: rgba(167,139,250,.08);}
+
+/* ═══════════════════════════════════════════════════════
+   Sidebar
+═══════════════════════════════════════════════════════ */
+.sidebar {
+  background: #070C17;
+  border-right: 1px solid var(--border);
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
+}
+
+.sidebar-section-title {
+  font-size: .68rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+/* Mode Toggle */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+.toggle-label { font-size: .85rem; font-weight: 500; }
+.toggle-sub   { font-size: .72rem; color: var(--text-muted); margin-top: 1px; }
+
+/* Custom Toggle Switch */
+.switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute; inset: 0; cursor: pointer;
+  background: #1E293B; border-radius: 100px;
+  transition: background .3s;
+}
+.slider::before {
+  content: ''; position: absolute;
+  width: 18px; height: 18px;
+  left: 3px; top: 3px;
+  background: var(--text-dim); border-radius: 50%;
+  transition: transform .3s, background .3s;
+}
+.switch input:checked + .slider { background: var(--cyan); }
+.switch input:checked + .slider::before {
+  transform: translateX(20px);
+  background: white;
+}
+
+/* Port Input */
+.port-input-wrap { display: flex; flex-direction: column; gap: 6px; }
+.port-input-wrap label { font-size: .8rem; color: var(--text-dim); }
+.port-input {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: .9rem;
+  padding: 9px 12px;
+  outline: none;
+  transition: border-color .2s;
+  width: 100%;
+}
+.port-input:focus { border-color: var(--cyan); }
+.port-hint { font-size: .7rem; color: var(--text-muted); }
+
+/* Buttons */
+.btn {
+  width: 100%;
+  padding: 10px 0;
+  border-radius: var(--radius-sm);
+  font-size: .88rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  letter-spacing: .02em;
+  transition: opacity .2s, transform .1s, box-shadow .2s;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+}
+.btn:active { transform: scale(.97); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+
+.btn-start {
+  background: linear-gradient(135deg, #00A3CC, var(--cyan));
+  color: #000;
+  box-shadow: 0 4px 18px rgba(0,212,255,.25);
+}
+.btn-start:hover:not(:disabled) { box-shadow: 0 4px 26px rgba(0,212,255,.4); }
+
+.btn-stop {
+  background: linear-gradient(135deg, #B91C1C, var(--red));
+  color: white;
+  box-shadow: 0 4px 18px rgba(239,68,68,.25);
+}
+.btn-stop:hover:not(:disabled) { box-shadow: 0 4px 26px rgba(239,68,68,.4); }
+
+.btn-calibrate {
+  background: var(--bg-card2);
+  color: var(--purple);
+  border: 1px solid var(--purple);
+}
+.btn-calibrate:hover:not(:disabled) { background: rgba(167,139,250,.1); }
+
+/* Status pill */
+.status-pill {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-card2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 10px 12px;
+  font-size: .82rem; font-weight: 500;
+}
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+.status-dot.ok          { background: var(--green); box-shadow: 0 0 8px var(--green); }
+.status-dot.warn        { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
+.status-dot.error       { background: var(--red);   box-shadow: 0 0 8px var(--red); }
+.status-dot.calibrating { background: var(--purple); box-shadow: 0 0 8px var(--purple); }
+
+/* SQI bar */
+.sqi-wrap { display: flex; flex-direction: column; gap: 5px; }
+.sqi-row  { display: flex; justify-content: space-between; font-size: .8rem; }
+.sqi-bar-bg { background: #1E293B; border-radius: 100px; height: 6px; overflow: hidden; }
+.sqi-bar-fill {
+  height: 100%; border-radius: 100px;
+  background: linear-gradient(90deg, var(--cyan), var(--green));
+  transition: width .5s ease;
+}
+
+/* Alert list */
+.alert-list { display: flex; flex-direction: column; gap: 5px; max-height: 200px; overflow-y: auto; }
+.alert-item {
+  font-size: .75rem; font-family: var(--font-mono);
+  padding: 5px 9px; border-radius: 5px;
+  border-left: 3px solid;
+}
+.alert-item.abnormal { border-color: var(--red);   background: rgba(239,68,68,.08); color: #FCA5A5; }
+.alert-item.normal   { border-color: var(--green); background: rgba(16,185,129,.08); color: #6EE7B7; }
+.alert-empty { font-size: .78rem; color: var(--text-muted); padding: 4px 0; }
+
+/* ═══════════════════════════════════════════════════════
+   Main Content
+═══════════════════════════════════════════════════════ */
+.main {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+/* Card */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  transition: border-color .3s;
+}
+.card:hover { border-color: var(--border-glow); }
+
+.card-title {
+  font-size: .7rem; font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .12em;
+  margin-bottom: 12px;
+}
+
+/* ── ECG Chart ── */
+.ecg-chart-wrap {
+  position: relative;
+  background: #0A0E18;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+#ecgCanvas {
+  display: block;
+  width: 100%;
+  height: 190px;
+}
+
+/* Chart grid lines drawn by canvas — placeholder */
+.chart-label-y {
+  position: absolute; left: 4px; top: 50%;
+  transform: translateY(-50%) rotate(-90deg);
+  font-size: .65rem; color: var(--text-muted);
+  pointer-events: none;
+  transform-origin: left center;
+}
+
+/* ── Prediction banner ── */
+.prediction-banner {
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  text-align: center;
+  transition: all .4s ease;
+  border: 2px solid var(--border);
+  background: var(--bg-card2);
+  height: 100%;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 6px;
+}
+.prediction-banner.normal {
+  border-color: var(--green);
+  background: linear-gradient(135deg, #052E16, #064E3B);
+  box-shadow: 0 4px 24px rgba(16,185,129,.18);
+}
+.prediction-banner.abnormal {
+  border-color: var(--red);
+  background: linear-gradient(135deg, #1C0A0A, #2D1515);
+  box-shadow: 0 4px 30px rgba(239,68,68,.30);
+  animation: pulse-alert 1.5s ease-in-out infinite;
+}
+@keyframes pulse-alert {
+  0%,100% { box-shadow: 0 4px 24px rgba(239,68,68,.3); }
+  50%      { box-shadow: 0 4px 48px rgba(239,68,68,.6); }
+}
+.pred-icon  { font-size: 2rem; line-height: 1; }
+.pred-label { font-size: 1.4rem; font-weight: 700; letter-spacing: .04em; }
+.pred-prob  { font-size: .82rem; color: var(--text-dim); }
+.pred-cons  { font-size: .78rem; color: var(--text-muted); }
+
+/* ── Row: top section ── */
+.row-top {
+  display: grid;
+  grid-template-columns: 1fr 240px;
+  gap: 16px;
+}
+
+/* ── Row: metrics ── */
+.row-metrics {
+  display: grid;
+  grid-template-columns: 200px 1fr 1fr;
+  gap: 16px;
+}
+
+/* ── BPM Gauge (CSS-only) ── */
+.bpm-gauge-wrap {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 8px; padding: 8px 0;
+}
+.gauge-svg-wrap {
+  position: relative; width: 160px; height: 90px;
+  overflow: hidden;
+}
+.gauge-svg { width: 160px; height: 160px; margin-top: -8px; }
+.gauge-track {
+  fill: none; stroke: #1E293B; stroke-width: 14;
+  stroke-dasharray: 251;
+  stroke-dashoffset: 0;
+  stroke-linecap: round;
+  transform: rotate(180deg); transform-origin: 80px 80px;
+}
+.gauge-fill {
+  fill: none; stroke: var(--green); stroke-width: 14;
+  stroke-dasharray: 251;
+  stroke-dashoffset: 251;
+  stroke-linecap: round;
+  transform: rotate(180deg); transform-origin: 80px 80px;
+  transition: stroke-dashoffset .6s ease, stroke .6s ease;
+}
+.gauge-bpm-val {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  text-align: center;
+  font-size: 1.8rem; font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--green);
+  transition: color .6s;
+}
+.gauge-bpm-unit {
+  font-size: .75rem; color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.gauge-ranges {
+  display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+  font-size: .65rem; color: var(--text-muted);
+}
+.gauge-ranges span { padding: 2px 7px; border-radius: 100px; }
+.range-normal    { background: rgba(16,185,129,.12); color: var(--green); }
+.range-warn      { background: rgba(245,158,11,.12); color: var(--yellow); }
+.range-high      { background: rgba(239,68,68,.12);  color: var(--red); }
+
+/* ── HRV Metric Cards ── */
+.hrv-grid  { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+.hrv-card  {
+  background: var(--bg-card2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px;
+  text-align: center;
+  transition: border-color .3s;
+}
+.hrv-card:hover { border-color: var(--border-glow); }
+.hrv-label { font-size: .68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 4px; }
+.hrv-value { font-size: 1.55rem; font-weight: 700; font-family: var(--font-mono); line-height: 1; }
+.hrv-unit  { font-size: .72rem; color: var(--text-dim); margin-top: 3px; }
+
+/* ── Feature Table (right column) ── */
+.feat-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 0; border-bottom: 1px solid var(--border);
+  font-size: .83rem;
+}
+.feat-row:last-child { border-bottom: none; }
+.feat-name { color: var(--text-dim); }
+.feat-val  { font-family: var(--font-mono); color: var(--text-primary); font-weight: 500; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #1E293B; border-radius: 4px; }
+
+/* ── Toast notification ── */
+.toast-wrap { position: fixed; bottom: 24px; right: 24px; z-index: 999; display: flex; flex-direction: column; gap: 8px; }
+.toast {
+  background: var(--bg-card2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 10px 16px;
+  font-size: .82rem; min-width: 200px;
+  animation: toast-in .3s ease;
+  box-shadow: 0 8px 24px rgba(0,0,0,.4);
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.toast.success { border-color: var(--green); color: #6EE7B7; }
+.toast.error   { border-color: var(--red);   color: #FCA5A5; }
+.toast.info    { border-color: var(--cyan);  color: var(--cyan); }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ═══════════════ HEADER ═══════════════ -->
+  <header>
+    <div class="header-icon">💓</div>
+    <div class="header-text">
+      <h1>ECG Anomaly Detection System</h1>
+      <div class="subtitle">ESP32 + AD8232 &nbsp;·&nbsp; Random Forest Classifier &nbsp;·&nbsp; 250 Hz Sampling</div>
+    </div>
+    <div class="header-badges">
+      <span class="badge badge-cyan" id="modeBadge">DEMO MODE</span>
+      <span class="badge badge-purple">RF MODEL v1</span>
+    </div>
+  </header>
+
+  <!-- ═══════════════ SIDEBAR ═══════════════ -->
+  <aside class="sidebar">
+
+    <!-- Mode -->
+    <div>
+      <div class="sidebar-section-title">Mode</div>
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Demo Mode</div>
+          <div class="toggle-sub">No hardware needed</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="demoToggle" checked />
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Port -->
+    <div id="portSection">
+      <div class="sidebar-section-title">Hardware</div>
+      <div class="port-input-wrap">
+        <label for="portInput">Serial Port</label>
+        <input id="portInput" class="port-input" type="text" value="COM3" placeholder="COM3" />
+        <span class="port-hint">Windows: COM3 · Linux: /dev/ttyUSB0</span>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div>
+      <div class="sidebar-section-title">Controls</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn btn-start" id="btnStart">▶ &nbsp;Start Engine</button>
+        <button class="btn btn-stop"  id="btnStop" disabled>⏹ &nbsp;Stop</button>
+        <button class="btn btn-calibrate" id="btnCalibrate" disabled>🎯 &nbsp;Calibrate (30s)</button>
+      </div>
+    </div>
+
+    <!-- System Status -->
+    <div>
+      <div class="sidebar-section-title">System Status</div>
+      <div class="status-pill" id="statusPill">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Not started</span>
+      </div>
+      <div class="sqi-wrap" style="margin-top:10px">
+        <div class="sqi-row">
+          <span style="font-size:.78rem;color:var(--text-muted)">Signal Quality (SQI)</span>
+          <span style="font-size:.78rem;font-family:var(--font-mono)" id="sqiPct">—</span>
+        </div>
+        <div class="sqi-bar-bg">
+          <div class="sqi-bar-fill" id="sqiBar" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alert History -->
+    <div style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+      <div class="sidebar-section-title">Alert History</div>
+      <div class="alert-list" id="alertList">
+        <div class="alert-empty">No events yet</div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ═══════════════ MAIN ═══════════════ -->
+  <main class="main">
+
+    <!-- Row 1: ECG Chart + Prediction -->
+    <div class="row-top">
+
+      <div class="card">
+        <div class="card-title">⚡ Live ECG Waveform</div>
+        <div class="ecg-chart-wrap">
+          <canvas id="ecgCanvas"></canvas>
+        </div>
+      </div>
+
+      <div class="card" style="display:flex;flex-direction:column">
+        <div class="card-title">🤖 AI Prediction</div>
+        <div class="prediction-banner" id="predBanner" style="flex:1">
+          <div class="pred-icon" id="predIcon">⏳</div>
+          <div class="pred-label" id="predLabel" style="color:var(--text-muted)">Waiting…</div>
+          <div class="pred-prob"  id="predProb">P(abnormal) = —</div>
+          <div class="pred-cons"  id="predCons">Consecutive: — / 3</div>
+          <div style="font-size:.72rem;color:var(--text-muted);margin-top:4px" id="predTime">—</div>
+        </div>
+      </div>
+
+    </div><!-- /row-top -->
+
+    <!-- Row 2: BPM + HRV + Features -->
+    <div class="row-metrics">
+
+      <!-- BPM Gauge -->
+      <div class="card">
+        <div class="card-title">❤️ Heart Rate</div>
+        <div class="bpm-gauge-wrap">
+          <div class="gauge-svg-wrap">
+            <svg class="gauge-svg" viewBox="0 0 160 160">
+              <!-- half-circle arc, radius=73, center=80,80 -->
+              <circle class="gauge-track" cx="80" cy="80" r="60"
+                stroke-dasharray="188" stroke-dashoffset="0" />
+              <circle class="gauge-fill"  cx="80" cy="80" r="60"
+                id="gaugeFill"
+                stroke-dasharray="188" stroke-dashoffset="188" />
+            </svg>
+            <div class="gauge-bpm-val" id="bpmVal">—</div>
+          </div>
+          <div class="gauge-bpm-unit">BPM</div>
+          <div class="gauge-ranges">
+            <span class="range-normal">60–100 Normal</span>
+            <span class="range-warn">100–120 Mild</span>
+            <span class="range-high">&gt;120 High</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- HRV Metrics -->
+      <div class="card">
+        <div class="card-title">📊 HRV Metrics</div>
+        <div class="hrv-grid">
+          <div class="hrv-card">
+            <div class="hrv-label">SDNN</div>
+            <div class="hrv-value" id="mSdnn" style="color:var(--purple)">—</div>
+            <div class="hrv-unit">ms</div>
+          </div>
+          <div class="hrv-card">
+            <div class="hrv-label">RMSSD</div>
+            <div class="hrv-value" id="mRmssd" style="color:var(--green)">—</div>
+            <div class="hrv-unit">ms</div>
+          </div>
+          <div class="hrv-card">
+            <div class="hrv-label">RR Mean</div>
+            <div class="hrv-value" id="mRrMean" style="color:var(--blue)">—</div>
+            <div class="hrv-unit">ms</div>
+          </div>
+          <div class="hrv-card">
+            <div class="hrv-label">RR Std</div>
+            <div class="hrv-value" id="mRrStd" style="color:var(--cyan)">—</div>
+            <div class="hrv-unit">ms</div>
+          </div>
+          <div class="hrv-card">
+            <div class="hrv-label">Beat Var.</div>
+            <div class="hrv-value" id="mBeatVar" style="color:var(--yellow)">—</div>
+            <div class="hrv-unit">ms²</div>
+          </div>
+          <div class="hrv-card">
+            <div class="hrv-label">R-Peaks</div>
+            <div class="hrv-value" id="mRpeaks" style="color:var(--text-dim)">—</div>
+            <div class="hrv-unit">/ 5s</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Feature Table -->
+      <div class="card">
+        <div class="card-title">🔬 Feature Vector</div>
+        <div id="featTable">
+          <div class="feat-row"><span class="feat-name">heart_rate</span>   <span class="feat-val" id="fHr">—</span></div>
+          <div class="feat-row"><span class="feat-name">rr_mean</span>       <span class="feat-val" id="fRrMean">—</span></div>
+          <div class="feat-row"><span class="feat-name">rr_std</span>        <span class="feat-val" id="fRrStd">—</span></div>
+          <div class="feat-row"><span class="feat-name">sdnn</span>          <span class="feat-val" id="fSdnn">—</span></div>
+          <div class="feat-row"><span class="feat-name">rmssd</span>         <span class="feat-val" id="fRmssd">—</span></div>
+          <div class="feat-row"><span class="feat-name">beat_variance</span> <span class="feat-val" id="fBeatVar">—</span></div>
+        </div>
+      </div>
+
+    </div><!-- /row-metrics -->
+
+  </main><!-- /main -->
+
+</div><!-- /shell -->
+
+<!-- Toast container -->
+<div class="toast-wrap" id="toastWrap"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     JavaScript
+═══════════════════════════════════════════════════════════════ -->
+<script>
+/* ── Socket.IO connection ── */
+const socket = io({ transports: ['websocket', 'polling'] });
+
+/* ── ECG Canvas ── */
+const canvas  = document.getElementById('ecgCanvas');
+const ctx     = canvas.getContext('2d');
+let ecgData   = [];           // raw sample buffer
+const ECG_MAX_POINTS = 500;   // display window
+
+function resizeCanvas() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width  = rect.width  || 800;
+  canvas.height = 190;
+}
+resizeCanvas();
+window.addEventListener('resize', () => { resizeCanvas(); drawEcg(); });
+
+function drawEcg() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  /* Background */
+  ctx.fillStyle = '#0A0E18';
+  ctx.fillRect(0, 0, W, H);
+
+  /* Grid */
+  ctx.strokeStyle = '#1A2233';
+  ctx.lineWidth = 1;
+  const cols = 10, rows = 4;
+  for (let i = 1; i < cols; i++) {
+    ctx.beginPath();
+    ctx.moveTo(W * i / cols, 0);
+    ctx.lineTo(W * i / cols, H);
+    ctx.stroke();
+  }
+  for (let i = 1; i < rows; i++) {
+    ctx.beginPath();
+    ctx.moveTo(0, H * i / rows);
+    ctx.lineTo(W, H * i / rows);
+    ctx.stroke();
+  }
+
+  if (ecgData.length < 2) return;
+
+  /* Normalize */
+  const arr = ecgData.slice(-ECG_MAX_POINTS);
+  const mn  = Math.min(...arr);
+  const mx  = Math.max(...arr);
+  const rng = mx - mn || 1;
+  const pad = 14;
+
+  /* Gradient line color */
+  const gradient = ctx.createLinearGradient(0, 0, W, 0);
+  gradient.addColorStop(0,   'rgba(0,212,255,0.3)');
+  gradient.addColorStop(0.5, '#00D4FF');
+  gradient.addColorStop(1,   '#00D4FF');
+
+  ctx.save();
+  /* Glow */
+  ctx.shadowColor  = '#00D4FF';
+  ctx.shadowBlur   = 8;
+
+  ctx.beginPath();
+  ctx.strokeStyle = gradient;
+  ctx.lineWidth   = 2;
+  ctx.lineJoin    = 'round';
+
+  for (let i = 0; i < arr.length; i++) {
+    const x = (i / (arr.length - 1)) * W;
+    const y = H - pad - ((arr[i] - mn) / rng) * (H - pad * 2);
+    if (i === 0) ctx.moveTo(x, y);
+    else         ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  /* Fill under curve */
+  ctx.shadowBlur = 0;
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+  ctx.fillStyle = 'rgba(0,212,255,0.04)';
+  ctx.fill();
+  ctx.restore();
+}
+
+/* ── BPM Gauge ── */
+const gaugeFill = document.getElementById('gaugeFill');
+const bpmVal    = document.getElementById('bpmVal');
+const GAUGE_CIRC = 188; // circumference of r=60 half circle approx
+
+function updateGauge(bpm) {
+  const clamped = Math.max(0, Math.min(bpm, 200));
+  const frac    = clamped / 200;
+  const offset  = GAUGE_CIRC - frac * GAUGE_CIRC;
+  gaugeFill.style.strokeDashoffset = offset;
+
+  let color;
+  if (bpm <= 0)       color = '#475569';
+  else if (bpm < 60)  color = '#38BDF8';
+  else if (bpm <= 100)color = '#10B981';
+  else if (bpm <= 120)color = '#F59E0B';
+  else                color = '#EF4444';
+
+  gaugeFill.style.stroke = color;
+  bpmVal.style.color     = color;
+  bpmVal.textContent     = bpm > 0 ? Math.round(bpm) : '—';
+}
+
+/* ── Status ── */
+const statusDot  = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+
+const STATUS_MAP = {
+  'OK'                    : ['ok',          '🟢  Signal OK'],
+  'ELECTRODE_DISCONNECTED': ['error',       '🔴  Electrode Disconnected'],
+  'POOR_SIGNAL'           : ['warn',        '🟡  Poor Signal Quality'],
+  'CALIBRATING'           : ['calibrating', '🔵  Calibrating…'],
+  'STARTING'              : ['warn',        '⚪  Starting…'],
+  'NO_DATA'               : ['error',       '🔴  No Data — Check Port'],
+  'STOPPED'               : ['',            '⚫  Not Started'],
+};
+
+function updateStatus(status) {
+  const [cls, label] = STATUS_MAP[status] || ['warn', status];
+  statusDot.className  = 'status-dot ' + cls;
+  statusText.textContent = label;
+}
+
+/* ── Prediction Banner ── */
+const predBanner = document.getElementById('predBanner');
+const predIcon   = document.getElementById('predIcon');
+const predLabel  = document.getElementById('predLabel');
+const predProb   = document.getElementById('predProb');
+const predCons   = document.getElementById('predCons');
+const predTime   = document.getElementById('predTime');
+
+function updatePrediction(pred) {
+  const label = pred.label || '—';
+  const prob  = pred.probability || 0;
+  const cons  = pred.consecutive_count || 0;
+  const ts    = pred.timestamp || '—';
+
+  predProb.textContent = `P(abnormal) = ${(prob * 100).toFixed(1)}%`;
+  predCons.textContent = `Consecutive: ${cons} / 3`;
+  predTime.textContent = ts;
+
+  predBanner.className = 'prediction-banner';
+  if (label === 'ABNORMAL') {
+    predBanner.classList.add('abnormal');
+    predIcon.textContent  = '🚨';
+    predLabel.textContent = 'ABNORMAL';
+    predLabel.style.color = '#EF4444';
+  } else if (label === 'Normal') {
+    predBanner.classList.add('normal');
+    predIcon.textContent  = '✅';
+    predLabel.textContent = 'Normal';
+    predLabel.style.color = '#10B981';
+  } else {
+    predIcon.textContent  = '⏳';
+    predLabel.textContent = label;
+    predLabel.style.color = 'var(--text-muted)';
+  }
+}
+
+/* ── Metric helpers ── */
+function setEl(id, val, suffix='') {
+  const el = document.getElementById(id);
+  if (el) el.textContent = (val !== undefined && val !== null && val !== 0)
+    ? (typeof val === 'number' ? val.toFixed(1) : val) + suffix
+    : '—';
+}
+
+/* ── Feature table ── */
+function updateFeatures(f) {
+  if (!f || !f.quality_ok) return;
+  setEl('fHr',      f.heart_rate,    ' BPM');
+  setEl('fRrMean',  f.rr_mean,       ' ms');
+  setEl('fRrStd',   f.rr_std,        ' ms');
+  setEl('fSdnn',    f.sdnn,          ' ms');
+  setEl('fRmssd',   f.rmssd,         ' ms');
+  setEl('fBeatVar', f.beat_variance, ' ms²');
+
+  setEl('mSdnn',    f.sdnn);
+  setEl('mRmssd',   f.rmssd);
+  setEl('mRrMean',  f.rr_mean);
+  setEl('mRrStd',   f.rr_std);
+  setEl('mBeatVar', f.beat_variance);
+  setEl('mRpeaks',  f.r_peak_count);
+
+  updateGauge(f.heart_rate || 0);
+
+  /* SQI */
+  const sqi = f.sqi || 0;
+  document.getElementById('sqiBar').style.width = (sqi * 100) + '%';
+  document.getElementById('sqiPct').textContent = (sqi * 100).toFixed(0) + '%';
+}
+
+/* ── Alert history ── */
+const alertList = document.getElementById('alertList');
+let alertHistory = [];
+
+function addAlert(pred) {
+  const label = pred.label;
+  if (!label || label === '—' || label === 'Poor Signal') return;
+
+  const last = alertHistory[alertHistory.length - 1];
+  if (last && last.ts === pred.timestamp) return; // deduplicate
+
+  alertHistory.push({ ts: pred.timestamp, label, prob: pred.probability });
+  if (alertHistory.length > 20) alertHistory.shift();
+
+  renderAlerts();
+}
+
+function renderAlerts() {
+  if (alertHistory.length === 0) {
+    alertList.innerHTML = '<div class="alert-empty">No events yet</div>';
+    return;
+  }
+  alertList.innerHTML = [...alertHistory].reverse().map(evt => {
+    const cls = evt.label === 'ABNORMAL' ? 'abnormal' : 'normal';
+    return `<div class="alert-item ${cls}">${evt.ts} · <b>${evt.label}</b> · P=${(evt.prob*100).toFixed(0)}%</div>`;
+  }).join('');
+}
+
+/* ── Socket events ── */
+socket.on('connect',    () => toast('Connected to ECG server', 'info'));
+socket.on('disconnect', () => toast('Disconnected from server', 'error'));
+
+socket.on('update', data => {
+  /* ECG waveform */
+  if (data.ecg && data.ecg.length > 0) {
+    ecgData = ecgData.concat(data.ecg);
+    if (ecgData.length > ECG_MAX_POINTS * 3) ecgData = ecgData.slice(-ECG_MAX_POINTS);
+    drawEcg();
+  }
+
+  /* Status */
+  if (data.status) updateStatus(data.status);
+
+  /* Features */
+  if (data.features) updateFeatures(data.features);
+
+  /* Prediction */
+  if (data.prediction) {
+    updatePrediction(data.prediction);
+    addAlert(data.prediction);
+  }
+});
+
+/* ── Controls ── */
+const demoToggle  = document.getElementById('demoToggle');
+const portSection = document.getElementById('portSection');
+const portInput   = document.getElementById('portInput');
+const btnStart    = document.getElementById('btnStart');
+const btnStop     = document.getElementById('btnStop');
+const btnCal      = document.getElementById('btnCalibrate');
+const modeBadge   = document.getElementById('modeBadge');
+
+demoToggle.addEventListener('change', () => {
+  portSection.style.display = demoToggle.checked ? 'none' : 'block';
+  modeBadge.textContent     = demoToggle.checked ? 'DEMO MODE' : 'LIVE — ESP32';
+});
+// Init state
+portSection.style.display = 'none';
+
+async function apiCall(endpoint, body={}) {
+  const r = await fetch(endpoint, {
+    method : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body   : JSON.stringify(body),
+  });
+  return r.json();
+}
+
+btnStart.addEventListener('click', async () => {
+  btnStart.disabled = true;
+  btnStart.textContent = '⏳  Starting…';
+  const result = await apiCall('/api/start', {
+    demo_mode: demoToggle.checked,
+    port: portInput.value.trim() || 'COM3',
+  });
+  if (result.ok) {
+    toast(`Engine started — ${result.mode === 'demo' ? 'Demo Mode' : result.port}`, 'success');
+    btnStop.disabled      = false;
+    btnCal.disabled       = false;
+    btnStart.disabled     = false;
+    btnStart.textContent  = '▶ \u00a0Start Engine';
+    updateStatus('OK');
+  } else {
+    toast('Failed: ' + result.error, 'error');
+    btnStart.disabled    = false;
+    btnStart.textContent = '▶ \u00a0Start Engine';
+  }
+});
+
+btnStop.addEventListener('click', async () => {
+  await apiCall('/api/stop');
+  toast('Engine stopped', 'info');
+  btnStop.disabled  = true;
+  btnCal.disabled   = true;
+  updateStatus('STOPPED');
+  ecgData = [];
+  drawEcg();
+  updateGauge(0);
+  predBanner.className = 'prediction-banner';
+  predIcon.textContent  = '⏹';
+  predLabel.textContent = 'Stopped';
+  predLabel.style.color = 'var(--text-muted)';
+});
+
+btnCal.addEventListener('click', async () => {
+  const r = await apiCall('/api/calibrate');
+  if (r.ok) toast('Calibration started (30s baseline…)', 'info');
+  else      toast('Calibration failed: ' + r.error, 'error');
+});
+
+/* ── Toast ── */
+function toast(msg, type='info') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toastWrap').appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+/* ── Init ── */
+updateStatus('STOPPED');
+updateGauge(0);
+drawEcg();
+</script>
+</body>
+</html>

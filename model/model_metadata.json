@@ -1,0 +1,18 @@
+{
+  "model_version": "v1",
+  "n_estimators": 100,
+  "feature_columns": [
+    "heart_rate",
+    "rr_mean",
+    "rr_std",
+    "sdnn",
+    "rmssd",
+    "beat_variance"
+  ],
+  "train_samples": 8372,
+  "test_samples": 2093,
+  "test_accuracy": 0.8161,
+  "test_f1": 0.7679,
+  "cv_f1_mean": 0.7757,
+  "cv_f1_std": 0.0091
+}
